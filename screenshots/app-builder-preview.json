@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Blackwire",
+      "hasCanvas": false,
+      "bodyTextLen": 538,
+      "bodyTextHash": "ba4280fbbf3648eba0d1a64eaa72e998b10a0f8e07e3d0913e4f89f4add80dad",
+      "bodyTextPrefix": "ON AIR Blackwire @ Tune … 0 spins 0 heard DECK BLACKWIRE Nothing",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Blackwire",
+      "hasCanvas": false,
+      "bodyTextLen": 555,
+      "bodyTextHash": "5631814d32409d8d8e796a5604468b9822b5ca45c1dd8ab0c31ba8f850250cc9",
+      "bodyTextPrefix": "ON AIR Blackwire @ Tune … 0 spins 0 heard DECK BLACKWIRE Nothing",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

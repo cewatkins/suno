@@ -1,0 +1,41 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Blackwire",
+      "hasCanvas": false,
+      "bodyTextLen": 2948,
+      "bodyTextHash": "a5b56ed9b229e55e3d222afe52299615dff76fe70ac22d1d4319ae6b9ce3b2a9",
+      "bodyTextPrefix": "ON AIR Blackwire @ Tune 1136 public 0 spins 0 heard DECK Nothing",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Blackwire",
+      "hasCanvas": false,
+      "bodyTextLen": 2865,
+      "bodyTextHash": "bcbe59c2c28e8c09d4bd5df9a5e742bf76f06a9a8029bcc90160d0ff76a255f5",
+      "bodyTextPrefix": "ON AIR Blackwire @ Tune 1136 public 0 spins 0 heard DECK Nothing",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": true,
+  "baselineReasons": [
+    "desktop: body text changed (538 -> 2948 chars, hash mismatch)",
+    "mobile: body text changed (555 -> 2865 chars, hash mismatch)"
+  ]
+}

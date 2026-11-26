@@ -1,0 +1,74 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-bg: #070b12;
+  --color-bg-elev: #0c1320;
+  --color-surface: #121b2e;
+  --color-surface-2: #1a2740;
+  --color-line: #2a3c5c;
+  --color-fg: #e8eef8;
+  --color-muted: #93a6c6;
+  --color-faint: #6d82a6;
+  --color-blue: #3c82f6;
+  --color-blue-2: #9ec2ff;
+  --color-ink: #06101f;
+  --color-on-blue: #f5f8ff;
+  --radius-deck: 1.25rem;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+
+  input[type="range"] {
+    appearance: none;
+    height: 0.375rem;
+    width: 100%;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--color-blue) var(--pct, 0%),
+      var(--color-surface-2) var(--pct, 0%)
+    );
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    background: var(--color-blue-2);
+    border: 2px solid var(--color-ink);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    background: var(--color-blue-2);
+    border: 2px solid var(--color-ink);
+  }
+
+  input[type="range"]:focus-visible {
+    outline: 2px solid var(--color-blue-2);
+    outline-offset: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter-bar {
+    transition: none !important;
+  }
+}
