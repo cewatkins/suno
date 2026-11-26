@@ -1,6 +1,6 @@
 import { n as TSS_SERVER_FUNCTION, t as createServerFn } from "./ssr.mjs";
-import { i as parseUuid, n as normalizeClip, r as parseHandle } from "./normalize-CsOb271U.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/suno.functions-D_NfHpws.js
+import { a as notesFromRaw, c as parseUuid, i as normalizeClip, s as parseHandle } from "./notes-DntmoDh8.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/suno.functions-CZAFmfEz.js
 var createServerRpc = (serverFnMeta, splitImportFn) => {
 	const url = "/_serverFn/" + serverFnMeta.id;
 	return Object.assign(splitImportFn, {
@@ -114,6 +114,17 @@ var getClip = createServerFn({ method: "GET" }).validator((input) => ({ id: pars
 	if (!track) throw new Error("That song isn't public.");
 	return track;
 });
+var getClipNotes_createServerFn_handler = createServerRpc({
+	id: "52fed5fd49e9e8aaab61eb2262f7a4e19a92ed3373da344e9eef3a7dd306059b",
+	name: "getClipNotes",
+	filename: "src/lib/suno/suno.functions.ts"
+}, (opts) => getClipNotes.__executeServer(opts));
+var getClipNotes = createServerFn({ method: "GET" }).validator((input) => ({ id: parseUuid(input?.id, "song") })).handler(getClipNotes_createServerFn_handler, async ({ data }) => {
+	const body = asRecord(await sunoGet(`/api/clip/${data.id}`));
+	const notes = notesFromRaw(body);
+	if (!notes) throw new Error("That song isn't public.");
+	return notes;
+});
 var getRandomBatch_createServerFn_handler = createServerRpc({
 	id: "ed0f028dd1c8288ce26c80bba2ffa1765de6a626545519c75e6c2d65b3b72a35",
 	name: "getRandomBatch",
@@ -170,4 +181,4 @@ var getRandomBatch = createServerFn({ method: "GET" }).validator((input) => {
 	};
 });
 //#endregion
-export { getClip_createServerFn_handler, getPlaylistPage_createServerFn_handler, getRandomBatch_createServerFn_handler, getStationPage_createServerFn_handler };
+export { getClipNotes_createServerFn_handler, getClip_createServerFn_handler, getPlaylistPage_createServerFn_handler, getRandomBatch_createServerFn_handler, getStationPage_createServerFn_handler };

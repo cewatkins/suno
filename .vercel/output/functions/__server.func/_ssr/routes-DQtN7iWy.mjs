@@ -2,9 +2,9 @@ import { i as __toESM } from "../_runtime.mjs";
 import { b as require_jsx_runtime, q as require_react } from "../_libs/@tanstack/react-router+[...].mjs";
 import { _ as History, a as Square, b as Download, c as Shuffle, d as Repeat1, f as Radio, g as ListMusic, h as LoaderCircle, l as Search, m as Pause, n as VolumeX, o as SkipForward, p as Play, r as Volume2, s as SkipBack, t as X, u as Repeat, v as Heart, y as ExternalLink } from "../_libs/lucide-react.mjs";
 import { n as TSS_SERVER_FUNCTION, r as getServerFnById, t as createServerFn } from "./ssr.mjs";
-import { i as parseUuid, r as parseHandle, t as forgetLyrics } from "./normalize-CsOb271U.mjs";
+import { c as parseUuid, n as forgetLyrics, o as notesFromTrack, r as mergeNotes, s as parseHandle, t as emptyNotes } from "./notes-DntmoDh8.mjs";
 import { n as create, t as persist } from "../_libs/zustand.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CPBoAPxt.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-DQtN7iWy.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var IDLE = {
@@ -14,6 +14,7 @@ var IDLE = {
 	duration: 0,
 	error: null,
 	recording: false,
+	tape: false,
 	recordSeconds: 0,
 	canRecord: false
 };
@@ -39,7 +40,12 @@ var PlayerEngine = class {
 	levels = LEVELS();
 	volume = .9;
 	muted = false;
+	tape = false;
 	pendingRecord = false;
+	take = null;
+	takeSeq = 0;
+	arming = false;
+	gate = Promise.resolve();
 	maxHeard = 0;
 	reported = false;
 	natural = false;
@@ -47,11 +53,12 @@ var PlayerEngine = class {
 	recordStarted = 0;
 	lastRecordEmit = 0;
 	raf = 0;
-	recordMime = "audio/webm";
 	onEnded = null;
 	onSpin = null;
 	onHeard = null;
+	onRecordBegin = null;
 	onRecording = null;
+	onRecordDiscard = null;
 	subscribe = (fn) => {
 		this.listeners.add(fn);
 		return () => this.listeners.delete(fn);
@@ -71,6 +78,7 @@ var PlayerEngine = class {
 			duration: audio && Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : this.snap.duration,
 			error: this.snap.error,
 			recording: this.recorder?.state === "recording",
+			tape: this.tape,
 			recordSeconds: this.recorder?.state === "recording" ? (performance.now() - this.recordStarted) / 1e3 : 0,
 			canRecord: typeof MediaRecorder !== "undefined"
 		};
@@ -113,10 +121,7 @@ var PlayerEngine = class {
 				this.onSpin?.(id);
 			}
 			this.emit();
-			if (this.pendingRecord) {
-				this.pendingRecord = false;
-				this.beginRecorder();
-			}
+			this.armRecorder();
 		});
 		audio.addEventListener("pause", () => {
 			if (!audio.ended && this.snap.status !== "idle" && this.snap.status !== "error") {
@@ -138,13 +143,14 @@ var PlayerEngine = class {
 		});
 		audio.addEventListener("error", () => {
 			this.pendingRecord = false;
-			this.finishRecorder();
+			this.tape = false;
+			this.finishRecorder("drop");
 			this.setStatus("error", "This track didn't load. The video file may be missing or blocked.");
 		});
 		audio.addEventListener("ended", () => {
 			const id = this.snap.currentId;
 			this.natural = true;
-			if (this.recorder?.state === "recording") this.finishRecorder();
+			this.finishRecorder("end");
 			this.reportHeard();
 			this.snap = {
 				...this.snap,
@@ -222,8 +228,10 @@ var PlayerEngine = class {
 		const audio = this.ensureAudio();
 		this.natural = false;
 		this.reportHeard();
-		this.finishRecorder();
-		this.pendingRecord = Boolean(opts?.record);
+		const recordThis = this.tape || Boolean(opts?.record);
+		if (opts?.record) this.tape = true;
+		this.finishRecorder(this.recorder ? "skip" : "drop");
+		this.pendingRecord = recordThis;
 		this.reported = false;
 		this.maxHeard = 0;
 		this.natural = false;
@@ -236,6 +244,7 @@ var PlayerEngine = class {
 			currentTime: 0,
 			duration: track.duration || 0,
 			recording: false,
+			tape: this.tape,
 			recordSeconds: 0
 		};
 		this.emit();
@@ -248,7 +257,9 @@ var PlayerEngine = class {
 		} catch {
 			this.pendingRecord = false;
 			this.setStatus("paused", "Playback was blocked. Hit play once more.");
+			return;
 		}
+		this.armRecorder();
 	}
 	async replay() {
 		const audio = this.ensureAudio();
@@ -256,12 +267,18 @@ var PlayerEngine = class {
 		this.natural = false;
 		this.reported = false;
 		this.maxHeard = 0;
+		const recordThis = this.tape;
+		this.finishRecorder(this.recorder ? "skip" : "drop");
+		this.pendingRecord = recordThis;
 		audio.currentTime = 0;
 		try {
 			await audio.play();
 		} catch {
+			this.pendingRecord = false;
 			this.setStatus("paused", "Playback was blocked. Hit play once more.");
+			return;
 		}
+		this.armRecorder();
 	}
 	async toggle() {
 		this.ensureGraph();
@@ -291,26 +308,45 @@ var PlayerEngine = class {
 		if (!this.snap.currentId || !this.audio?.src) return;
 		this.ensureGraph();
 		await this.resume();
-		this.finishRecorder();
+		this.tape = true;
+		this.finishRecorder(this.recorder ? "drop" : "drop");
 		this.pendingRecord = true;
-		this.audio.currentTime = 0;
+		const audio = this.audio;
+		audio.currentTime = 0;
 		try {
-			await this.audio.play();
+			await audio.play();
 		} catch {
 			this.pendingRecord = false;
+			this.tape = false;
 			this.setStatus("paused", "Playback was blocked. Hit play once more.");
+			return;
 		}
+		this.armRecorder();
 	}
 	stopRecording() {
+		this.tape = false;
 		this.pendingRecord = false;
-		this.finishRecorder();
+		this.finishRecorder("stop");
 		this.emit();
 	}
-	beginRecorder() {
-		if (!this.tap || typeof MediaRecorder === "undefined") {
+	armRecorder() {
+		if (!this.pendingRecord || this.recorder || this.arming) return;
+		this.arming = true;
+		this.gate.then(() => {
+			this.arming = false;
+			if (!this.pendingRecord || this.recorder) return;
 			this.pendingRecord = false;
+			this.beginRecorder();
+		});
+	}
+	beginRecorder() {
+		const trackId = this.snap.currentId;
+		if (!trackId || !this.tap || typeof MediaRecorder === "undefined") {
+			this.pendingRecord = false;
+			this.tape = false;
 			this.snap = {
 				...this.snap,
+				tape: false,
 				error: "This browser can't record audio. You can still save the video file."
 			};
 			this.emit();
@@ -320,12 +356,20 @@ var PlayerEngine = class {
 		const chunks = [];
 		const recorder = new MediaRecorder(this.tap.stream, mime ? { mimeType: mime } : void 0);
 		const type = recorder.mimeType || mime || "audio/webm";
-		this.recordMime = type;
+		const take = {
+			id: `${trackId}:${this.takeSeq += 1}`,
+			trackId,
+			started: performance.now(),
+			reason: "stop",
+			release: () => {}
+		};
+		this.take = take;
 		recorder.ondataavailable = (event) => {
 			if (event.data.size) chunks.push(event.data);
 		};
 		recorder.onstop = () => {
 			const blob = new Blob(chunks, { type });
+			const seconds = (performance.now() - take.started) / 1e3;
 			if (this.recorder === recorder) {
 				this.recorder = null;
 				this.snap = {
@@ -335,25 +379,50 @@ var PlayerEngine = class {
 				};
 				this.emit();
 			}
-			if (blob.size > 800) this.onRecording?.(blob, type);
+			if ((take.reason === "end" || take.reason === "stop" || take.reason === "skip" && seconds >= 8) && blob.size > 800) this.onRecording?.(blob, type, take.id, take.trackId);
+			else this.onRecordDiscard?.(take.id);
+			take.release();
 		};
 		recorder.start();
 		this.recorder = recorder;
-		this.recordStarted = performance.now();
-		this.lastRecordEmit = this.recordStarted;
+		this.recordStarted = take.started;
+		this.lastRecordEmit = take.started;
+		this.onRecordBegin?.(take.id, trackId);
 		this.emit();
 	}
-	finishRecorder() {
+	finishRecorder(reason) {
 		const recorder = this.recorder;
 		this.pendingRecord = false;
 		if (!recorder || recorder.state === "inactive") {
 			this.recorder = null;
 			return;
 		}
+		if (this.take) this.take.reason = reason;
+		const take = this.take;
+		let release = () => {};
+		this.gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const timer = window.setTimeout(release, 2e3);
+		if (take) take.release = () => {
+			window.clearTimeout(timer);
+			release();
+		};
+		this.recorder = null;
 		try {
 			recorder.requestData();
 		} catch {}
-		recorder.stop();
+		try {
+			recorder.stop();
+		} catch {
+			release();
+		}
+		this.snap = {
+			...this.snap,
+			recording: false,
+			recordSeconds: 0
+		};
+		this.emit();
 	}
 };
 var engine = new PlayerEngine();
@@ -382,6 +451,7 @@ var getPlaylistPage = createServerFn({ method: "GET" }).validator((input) => {
 	};
 }).handler(createSsrRpc("8315d2c615b5f2e80830764a0664a4a4b701b2ed53b187b8849c82e87c4400f5"));
 var getClip = createServerFn({ method: "GET" }).validator((input) => ({ id: parseUuid(input?.id, "song") })).handler(createSsrRpc("d81f37f96da7d9ba30c0aed4e887a3f1754b8e7fd6b48430d766582a2680589d"));
+var getClipNotes = createServerFn({ method: "GET" }).validator((input) => ({ id: parseUuid(input?.id, "song") })).handler(createSsrRpc("52fed5fd49e9e8aaab61eb2262f7a4e19a92ed3373da344e9eef3a7dd306059b"));
 var getRandomBatch = createServerFn({ method: "GET" }).validator((input) => {
 	return {
 		handle: parseHandle(input?.handle),
@@ -804,6 +874,22 @@ var useDeck = create()(persist((set, get) => ({
 			qid: qid(),
 			track
 		}));
+		if (!queue.length && engine.getSnapshot().tape) {
+			const source = state.playlistTracks ?? state.tracks;
+			const index = source.findIndex((track) => track.id === endedId);
+			const following = index >= 0 ? source[index + 1] : void 0;
+			if (following) {
+				set({
+					past,
+					current: following
+				});
+				get().remember(following);
+				return {
+					type: "track",
+					track: following
+				};
+			}
+		}
 		if (!queue.length && state.radio) {
 			set({
 				past,
@@ -929,7 +1015,7 @@ function formatTime(seconds) {
 	return hours > 0 ? `${hours}:${minutes.toString().padStart(2, "0")}:${remain.toString().padStart(2, "0")}` : clock;
 }
 function safeFile(title) {
-	return title.replace(/[^\w\s.-]+/g, "").trim().slice(0, 80).replace(/\s+/g, " ") || "blackwire";
+	return title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim().replace(/[. ]+$/g, "").slice(0, 120) || "blackwire";
 }
 function formatWhen(iso) {
 	if (!iso) return "";
@@ -955,6 +1041,190 @@ async function downloadRemote(url, filename) {
 	const response = await fetch(url);
 	if (!response.ok) throw new Error("The file didn't download.");
 	downloadBlob(await response.blob(), filename);
+}
+var EBML = [
+	26,
+	69,
+	223,
+	163
+];
+var SEGMENT = [
+	24,
+	83,
+	128,
+	103
+];
+var TAGS = Uint8Array.of(18, 84, 195, 103);
+var TAG = Uint8Array.of(115, 115);
+var TARGETS = Uint8Array.of(99, 192);
+var TARGET_TYPE_VALUE = Uint8Array.of(104, 202);
+var TARGET_TYPE = Uint8Array.of(99, 202);
+var SIMPLE = Uint8Array.of(103, 200);
+var TAG_NAME = Uint8Array.of(69, 163);
+var TAG_STRING = Uint8Array.of(68, 135);
+var TEXT_CAP = 2e4;
+function concat(parts) {
+	const size = parts.reduce((sum, part) => sum + part.length, 0);
+	const out = new Uint8Array(size);
+	let offset = 0;
+	for (const part of parts) {
+		out.set(part, offset);
+		offset += part.length;
+	}
+	return out;
+}
+function vint(value) {
+	if (value < 0) throw new Error("Bad EBML size.");
+	if (value < 127) return Uint8Array.of(128 | value);
+	if (value < 16383) return Uint8Array.of(64 | value >> 8, value & 255);
+	if (value < 2097151) return Uint8Array.of(32 | value >> 16, value >> 8 & 255, value & 255);
+	return Uint8Array.of(16 | value >>> 24 & 15, value >>> 16 & 255, value >>> 8 & 255, value & 255);
+}
+function element(id, data) {
+	return concat([
+		id,
+		vint(data.length),
+		data
+	]);
+}
+function utf8(value) {
+	return new TextEncoder().encode(value);
+}
+function clipText(value) {
+	const trimmed = value.trim();
+	if (trimmed.length <= TEXT_CAP) return trimmed;
+	return trimmed.slice(0, TEXT_CAP);
+}
+function idWidth(first) {
+	if (first & 128) return 1;
+	if (first & 64) return 2;
+	if (first & 32) return 3;
+	if (first & 16) return 4;
+	return 0;
+}
+function sameId(bytes, offset, id) {
+	return id.every((byte, index) => bytes[offset + index] === byte);
+}
+function readSize(bytes, offset) {
+	const first = bytes[offset];
+	if (!first) return null;
+	let width = 1;
+	let marker = 128;
+	while (width <= 8 && (first & marker) === 0) {
+		width += 1;
+		marker >>= 1;
+	}
+	if (width > 8 || offset + width > bytes.length) return null;
+	const dataMask = marker - 1;
+	let unknown = (first & dataMask) === dataMask;
+	let value = first & dataMask;
+	for (let index = 1; index < width; index += 1) {
+		const byte = bytes[offset + index] ?? 0;
+		if (byte !== 255) unknown = false;
+		value = value * 256 + byte;
+	}
+	return {
+		width,
+		value,
+		unknown
+	};
+}
+function writeSize(bytes, offset, width, value) {
+	let rest = value;
+	for (let index = width - 1; index >= 1; index -= 1) {
+		bytes[offset + index] = rest & 255;
+		rest = Math.floor(rest / 256);
+	}
+	bytes[offset] = (1 << 8 - width | rest) & 255;
+}
+function simpleTag(name, value) {
+	const text = clipText(value);
+	if (!text) return null;
+	return element(SIMPLE, concat([element(TAG_NAME, utf8(name)), element(TAG_STRING, utf8(text))]));
+}
+function dateOnly(iso) {
+	return /^(\d{4}-\d{2}-\d{2})/.exec(iso)?.[1] ?? "";
+}
+function notesArchive(notes, recordedAt) {
+	const archive = {
+		recordedAt,
+		...notes
+	};
+	const json = JSON.stringify(archive);
+	if (json.length <= 6e4) return json;
+	return JSON.stringify({
+		...archive,
+		lyrics: notes.lyrics.slice(0, 8e3),
+		style: notes.style.slice(0, 8e3)
+	});
+}
+function buildWebmTags(notes, recordedAt) {
+	const album = notes.handle ? `@${notes.handle}` : notes.artist;
+	const model = [notes.modelName, notes.model].filter(Boolean).join(" ");
+	const comment = [
+		notes.songUrl,
+		model,
+		notes.persona ? `Voice: ${notes.persona}` : "",
+		notes.coverOf ? `Cover of ${notes.coverOf}` : "",
+		notes.badges.length ? notes.badges.join(", ") : "",
+		notes.plays ? `${notes.plays} Suno plays` : "",
+		notes.likes ? `${notes.likes} likes` : "",
+		`Saved ${recordedAt}`
+	].filter(Boolean).join("\n");
+	const tags = [
+		["TITLE", notes.title],
+		["ARTIST", notes.artist],
+		["ALBUM", album],
+		["DATE", dateOnly(notes.createdAt)],
+		["GENRE", notes.displayTags],
+		["DESCRIPTION", notes.style],
+		["NEGATIVE", notes.negativeStyle],
+		["PERSONA", notes.persona],
+		["COMMENT", comment],
+		["LYRICS", notes.lyrics],
+		["URL", notes.songUrl],
+		["MODEL", model],
+		["SUNO_ID", notes.id],
+		["SUNO", notesArchive(notes, recordedAt)]
+	].map(([name, value]) => simpleTag(name, value)).filter((tag) => tag !== null);
+	return element(TAGS, element(TAG, concat([element(TARGETS, concat([element(TARGET_TYPE_VALUE, Uint8Array.of(30)), element(TARGET_TYPE, utf8("TRACK"))])), ...tags])));
+}
+function appendWebmTags(bytes, tags) {
+	if (tags.length === 0 || bytes.length < 8 || !sameId(bytes, 0, EBML)) return bytes;
+	let offset = 0;
+	while (offset + 5 < bytes.length) {
+		const width = idWidth(bytes[offset] ?? 0);
+		if (!width || offset + width >= bytes.length) return bytes;
+		const isSegment = sameId(bytes, offset, SEGMENT);
+		offset += width;
+		const size = readSize(bytes, offset);
+		if (!size) return bytes;
+		const sizeAt = offset;
+		offset += size.width;
+		if (isSegment) {
+			if (size.unknown) return concat([bytes, tags]);
+			const next = size.value + tags.length;
+			if (next <= (size.width >= 7 ? Number.MAX_SAFE_INTEGER : 2 ** (7 * size.width) - 2) && offset + size.value <= bytes.length + 1) {
+				const copy = bytes.slice();
+				writeSize(copy, sizeAt, size.width, next);
+				return concat([copy, tags]);
+			}
+			return concat([bytes, tags]);
+		}
+		if (size.unknown) return bytes;
+		offset += size.value;
+	}
+	return bytes;
+}
+async function tagAudioBlob(blob, notes, recordedAt) {
+	const type = blob.type || "audio/webm";
+	if (!type.includes("webm")) return blob;
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const tagged = appendWebmTags(bytes, buildWebmTags(notes, recordedAt));
+	if (tagged === bytes) return blob;
+	const body = new ArrayBuffer(tagged.byteLength);
+	new Uint8Array(body).set(tagged);
+	return new Blob([body], { type });
 }
 var TABS = [
 	{
@@ -1001,8 +1271,48 @@ function withLyrics(track) {
 		lyrics: ""
 	};
 }
+var takes = /* @__PURE__ */ new Map();
+function findTrack(id) {
+	const state = useDeck.getState();
+	if (state.current?.id === id) return state.current;
+	const queued = state.queue.find((item) => item.track.id === id)?.track;
+	if (queued) return queued;
+	const past = state.past.find((track) => track.id === id);
+	if (past) return past;
+	const listed = state.tracks.find((track) => track.id === id) ?? state.playlistTracks?.find((track) => track.id === id);
+	if (listed) return listed;
+	const known = state.known[id];
+	if (!known) return null;
+	return {
+		...known,
+		lyrics: ""
+	};
+}
+async function saveTake(blob, mime, takeId, trackId) {
+	const held = takes.get(takeId) ?? null;
+	takes.delete(takeId);
+	const track = held?.track ?? findTrack(trackId);
+	let notes = track ? notesFromTrack(track) : emptyNotes(trackId);
+	try {
+		const fetched = held ? await held.notes : await getClipNotes({ data: { id: trackId } }).catch(() => null);
+		notes = mergeNotes(notes, fetched);
+	} catch {}
+	const ext = mime.includes("mp4") ? "m4a" : "webm";
+	let file = blob;
+	if (ext === "webm") try {
+		file = await tagAudioBlob(file, notes, (/* @__PURE__ */ new Date()).toISOString());
+	} catch {
+		file = blob;
+	}
+	const filename = `${safeFile(notes.title)}.${ext}`;
+	useDeck.getState().markRecorded(trackId);
+	downloadBlob(file, filename);
+	const still = engine.getSnapshot().tape;
+	useDeck.getState().setNotice(still ? `Saved ${filename}. The next song records too — just confirm the name.` : `Saved ${filename}.`);
+}
 async function recordCurrent() {
-	if (engine.getSnapshot().recording) {
+	const snap = engine.getSnapshot();
+	if (snap.recording || snap.tape) {
 		engine.stopRecording();
 		return;
 	}
@@ -1025,12 +1335,19 @@ function Deck() {
 		};
 		engine.onSpin = (id) => useDeck.getState().markSpin(id);
 		engine.onHeard = (id, seconds, natural) => useDeck.getState().markHeard(id, seconds, natural);
-		engine.onRecording = (blob, mime) => {
-			const playing = useDeck.getState().current;
-			const ext = mime.includes("mp4") ? "m4a" : "webm";
-			if (playing) useDeck.getState().markRecorded(playing.id);
-			downloadBlob(blob, `${safeFile(playing?.title || "blackwire")}.${ext}`);
-			useDeck.getState().setNotice(`Saved a recording of ${playing?.title ?? "that song"}.`);
+		engine.onRecordBegin = (takeId, trackId) => {
+			const track = findTrack(trackId);
+			const notes = getClipNotes({ data: { id: trackId } }).catch(() => null);
+			takes.set(takeId, {
+				track,
+				notes
+			});
+		};
+		engine.onRecording = (blob, mime, takeId, trackId) => {
+			saveTake(blob, mime, takeId, trackId);
+		};
+		engine.onRecordDiscard = (takeId) => {
+			takes.delete(takeId);
 		};
 		const unsub = useDeck.persist.onFinishHydration((state) => {
 			engine.setVolume(state.volume);
@@ -1047,12 +1364,14 @@ function Deck() {
 			engine.onEnded = null;
 			engine.onSpin = null;
 			engine.onHeard = null;
+			engine.onRecordBegin = null;
 			engine.onRecording = null;
+			engine.onRecordDiscard = null;
 		};
 	}, []);
 	(0, import_react.useEffect)(() => {
 		if (!notice) return;
-		const timer = window.setTimeout(() => useDeck.getState().setNotice(null), 4200);
+		const timer = window.setTimeout(() => useDeck.getState().setNotice(null), 7e3);
 		return () => window.clearTimeout(timer);
 	}, [notice]);
 	(0, import_react.useEffect)(() => {
@@ -1408,8 +1727,8 @@ function NowPlaying({ pct, playing, recording }) {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						type: "button",
 						onClick: () => void recordCurrent(),
-						className: "inline-flex items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium " + (recording ? "bg-blue text-on-blue" : "border border-line bg-surface"),
-						children: [recording ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Square, { className: "size-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "size-2.5 rounded-full bg-blue-2" }), recording ? `Recording ${formatTime(snap.recordSeconds)}` : "Record song"]
+						className: "inline-flex items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium " + (recording || snap.tape ? "bg-blue text-on-blue" : "border border-line bg-surface"),
+						children: [recording || snap.tape ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Square, { className: "size-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "size-2.5 rounded-full bg-blue-2" }), recording ? `Recording ${formatTime(snap.recordSeconds)}` : snap.tape ? "Will record next" : "Record song"]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						type: "button",
@@ -1434,9 +1753,17 @@ function NowPlaying({ pct, playing, recording }) {
 					})
 				]
 			}),
+			(recording || snap.tape) && current && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				className: "mt-3 font-mono text-xs text-faint",
+				children: [
+					"File name: ",
+					safeFile(current.title),
+					".webm"
+				]
+			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-3 text-xs leading-relaxed text-faint",
-				children: "Record plays the song from the top and saves an audio file when it ends, or when you stop. Save video grabs the original file without a full listen. Audio stays on Suno — this deck does not mirror the catalog."
+				children: "Record plays the whole song and saves a file named for that song — just confirm the download. It then records the next song in the list, or the next queued song, until you stop. The webm keeps the lyrics, style, model, and the other public Suno details. Save video grabs the original file without a full listen."
 			}),
 			lyricsOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", {
 				className: "mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl bg-surface p-4 font-sans text-sm leading-relaxed text-muted",
@@ -1875,11 +2202,12 @@ function HistoryPanel() {
 function MobileBar({ playing, recording }) {
 	const current = useDeck((state) => state.current);
 	const snap = (0, import_react.useSyncExternalStore)(engine.subscribe, engine.getSnapshot, engine.getSnapshot);
+	const armed = recording || snap.tape;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "fixed inset-x-0 bottom-0 z-10 border-t border-line bg-bg-elev px-3 py-2 md:hidden",
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 			className: "truncate text-center text-xs text-muted",
-			children: [recording ? `Recording ${formatTime(snap.recordSeconds)} · ` : "", current?.title ?? "Blackwire"]
+			children: [recording ? `Recording ${formatTime(snap.recordSeconds)} · ` : snap.tape ? "Next song records · " : "", current?.title ?? "Blackwire"]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "mt-1 flex items-center justify-center gap-2",
 			children: [
@@ -1903,8 +2231,8 @@ function MobileBar({ playing, recording }) {
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 					type: "button",
 					onClick: () => void recordCurrent(),
-					className: "inline-flex h-11 items-center rounded-full px-4 text-sm " + (recording ? "bg-blue text-on-blue" : "border border-line"),
-					children: recording ? "Stop" : "Record"
+					className: "inline-flex h-11 items-center rounded-full px-4 text-sm " + (armed ? "bg-blue text-on-blue" : "border border-line"),
+					children: armed ? "Stop" : "Record"
 				})
 			]
 		})]

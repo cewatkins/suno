@@ -7,9 +7,9 @@
       "status": 200,
       "title": "Blackwire",
       "hasCanvas": false,
-      "bodyTextLen": 2948,
-      "bodyTextHash": "a5b56ed9b229e55e3d222afe52299615dff76fe70ac22d1d4319ae6b9ce3b2a9",
-      "bodyTextPrefix": "ON AIR Blackwire @ Tune 1136 public 0 spins 0 heard DECK Nothing",
+      "bodyTextLen": 640,
+      "bodyTextHash": "a8229e148a0446272ab72f6e9ee7e2370745b62d17361ef8d385d84531328e58",
+      "bodyTextPrefix": "ON AIR Blackwire @ Tune … 0 spins 0 heard DECK BLACKWIRE Nothing",
       "horizontalOverflow": false,
       "consoleErrors": [],
       "pageErrors": [],
@@ -21,8 +21,8 @@
       "status": 200,
       "title": "Blackwire",
       "hasCanvas": false,
-      "bodyTextLen": 2865,
-      "bodyTextHash": "bcbe59c2c28e8c09d4bd5df9a5e742bf76f06a9a8029bcc90160d0ff76a255f5",
+      "bodyTextLen": 2967,
+      "bodyTextHash": "396f9c6aac520e64fb489cf2c6d73b05fe1b36718c0dd0ee7f4d30463e148b55",
       "bodyTextPrefix": "ON AIR Blackwire @ Tune 1136 public 0 spins 0 heard DECK Nothing",
       "horizontalOverflow": false,
       "consoleErrors": [],
@@ -35,7 +35,6 @@
   "verdictFile": "/workspace/screenshots/app-builder-built.json",
   "divergesFromBaseline": true,
   "baselineReasons": [
-    "desktop: body text changed (538 -> 2948 chars, hash mismatch)",
-    "mobile: body text changed (555 -> 2865 chars, hash mismatch)"
+    "mobile: body text changed (643 -> 2967 chars, hash mismatch)"
   ]
 }

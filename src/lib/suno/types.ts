@@ -55,3 +55,37 @@ export type HistoryEntry = {
 };
 
 export type KnownTrack = Omit<SlimTrack, "lyrics">;
+
+export type ClipNotes = {
+  id: string;
+  title: string;
+  artist: string;
+  handle: string;
+  createdAt: string;
+  updatedAt: string;
+  duration: number;
+  explicit: boolean;
+  model: string;
+  modelName: string;
+  displayTags: string;
+  style: string;
+  negativeStyle: string;
+  lyrics: string;
+  type: string;
+  task: string;
+  instrumental: boolean;
+  hasVocal: boolean;
+  remix: boolean;
+  canRemix: boolean;
+  hasStem: boolean;
+  sliders: Record<string, number>;
+  coverOf: string;
+  persona: string;
+  badges: string[];
+  plays: number;
+  likes: number;
+  comments: number;
+  image: string;
+  videoUrl: string;
+  songUrl: string;
+};

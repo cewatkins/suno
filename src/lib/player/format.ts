@@ -10,10 +10,12 @@ export function formatTime(seconds: number): string {
 
 export function safeFile(title: string): string {
   const cleaned = title
-    .replace(/[^\w\s.-]+/g, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
+    .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 80);
-  return cleaned.replace(/\s+/g, " ") || "blackwire";
+    .replace(/[. ]+$/g, "")
+    .slice(0, 120);
+  return cleaned || "blackwire";
 }
 
 export function formatWhen(iso: string): string {

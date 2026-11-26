@@ -103,7 +103,7 @@ var HEADERS = { TSS_SHELL: "X-TSS_SHELL" };
 * the dev styles URL for route-scoped CSS collection.
 */
 async function getStartManifest(matchedRoutes) {
-	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-CzyDrLtG.mjs");
+	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-CMh8cpQo.mjs");
 	const startManifest = tsrStartManifest();
 	let routes = startManifest.routes;
 	routes[rootRouteId];
@@ -123,21 +123,25 @@ async function getStartManifest(matchedRoutes) {
 	};
 }
 var manifest = {
+	"52fed5fd49e9e8aaab61eb2262f7a4e19a92ed3373da344e9eef3a7dd306059b": {
+		functionName: "getClipNotes_createServerFn_handler",
+		importer: () => import("./suno.functions-CZAFmfEz.mjs")
+	},
 	"8315d2c615b5f2e80830764a0664a4a4b701b2ed53b187b8849c82e87c4400f5": {
 		functionName: "getPlaylistPage_createServerFn_handler",
-		importer: () => import("./suno.functions-D_NfHpws.mjs")
+		importer: () => import("./suno.functions-CZAFmfEz.mjs")
 	},
 	"ba34551ad3b821e6cd100c136e863e8b809bf5a537cf4333baedf113fc195633": {
 		functionName: "getStationPage_createServerFn_handler",
-		importer: () => import("./suno.functions-D_NfHpws.mjs")
+		importer: () => import("./suno.functions-CZAFmfEz.mjs")
 	},
 	"d81f37f96da7d9ba30c0aed4e887a3f1754b8e7fd6b48430d766582a2680589d": {
 		functionName: "getClip_createServerFn_handler",
-		importer: () => import("./suno.functions-D_NfHpws.mjs")
+		importer: () => import("./suno.functions-CZAFmfEz.mjs")
 	},
 	"ed0f028dd1c8288ce26c80bba2ffa1765de6a626545519c75e6c2d65b3b72a35": {
 		functionName: "getRandomBatch_createServerFn_handler",
-		importer: () => import("./suno.functions-D_NfHpws.mjs")
+		importer: () => import("./suno.functions-CZAFmfEz.mjs")
 	}
 };
 async function getServerFnById(id, access) {
@@ -1542,7 +1546,7 @@ var getBaseManifest = getProdBaseManifest;
 var createEarlyHintsForRequest = createEarlyHintsCollector;
 async function loadEntries() {
 	const [routerEntry, startEntry, pluginAdapters] = await Promise.all([
-		import("./router-BglFIeN8.mjs").then((n) => n.t),
+		import("./router-Bq08jcQ4.mjs").then((n) => n.t),
 		import("./start-5Z2QO8AU.mjs"),
 		import("./empty-plugin-adapters-D9UWiqvJ.mjs")
 	]);

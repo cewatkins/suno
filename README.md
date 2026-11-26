@@ -12,7 +12,7 @@ Suno's official API is partner-only and undocumented. Blackwire does not use a s
 - Search and sort whatever pages you have indexed
 - Log spins in this browser: play count, finishes, time, last played
 - "Spread listens" avoids the songs you just heard and the ones you play most
-- Record a song by playing it from the top. The browser saves an audio file when the song ends or you stop
+- Record a song from the top. When it ends, the browser saves one audio file named for that song, then the next song in the list (or the queue) records too, until you stop. A webm also carries the public Suno details (title, artist, lyrics, style, model, counts, and a JSON copy) inside the file.
 - Save the original video file for the current song only
 - Switch channel with the `@handle` field
 

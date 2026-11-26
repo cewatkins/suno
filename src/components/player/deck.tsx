@@ -29,8 +29,10 @@ import {
   type LibrarySort,
 } from "@/lib/player/store";
 import { downloadBlob, downloadRemote, formatTime, formatWhen, safeFile } from "@/lib/player/format";
-import { getClip } from "@/lib/suno/suno.functions";
-import type { KnownTrack, SlimTrack } from "@/lib/suno/types";
+import { tagAudioBlob } from "@/lib/player/webm-tags";
+import { getClip, getClipNotes } from "@/lib/suno/suno.functions";
+import { emptyNotes, mergeNotes, notesFromTrack } from "@/lib/suno/notes";
+import type { ClipNotes, KnownTrack, SlimTrack } from "@/lib/suno/types";
 
 const TABS: { id: DeckTab; label: string; icon: typeof ListMusic }[] = [
   { id: "next", label: "Up next", icon: ListMusic },
@@ -50,8 +52,65 @@ function withLyrics(track: KnownTrack | SlimTrack): SlimTrack {
   return "lyrics" in track ? track : { ...track, lyrics: "" };
 }
 
+type HeldTake = {
+  track: SlimTrack | null;
+  notes: Promise<ClipNotes | null>;
+};
+
+const takes = new Map<string, HeldTake>();
+
+function findTrack(id: string): SlimTrack | null {
+  const state = useDeck.getState();
+  if (state.current?.id === id) return state.current;
+  const queued = state.queue.find((item) => item.track.id === id)?.track;
+  if (queued) return queued;
+  const past = state.past.find((track) => track.id === id);
+  if (past) return past;
+  const listed =
+    state.tracks.find((track) => track.id === id) ??
+    state.playlistTracks?.find((track) => track.id === id);
+  if (listed) return listed;
+  const known = state.known[id];
+  if (!known) return null;
+  return { ...known, lyrics: "" };
+}
+
+async function saveTake(blob: Blob, mime: string, takeId: string, trackId: string) {
+  const held = takes.get(takeId) ?? null;
+  takes.delete(takeId);
+  const track = held?.track ?? findTrack(trackId);
+  let notes = track ? notesFromTrack(track) : emptyNotes(trackId);
+  try {
+    const fetched = held
+      ? await held.notes
+      : await getClipNotes({ data: { id: trackId } }).catch(() => null);
+    notes = mergeNotes(notes, fetched);
+  } catch {
+    /* keep whatever the station already had */
+  }
+  const ext = mime.includes("mp4") ? "m4a" : "webm";
+  let file = blob;
+  if (ext === "webm") {
+    try {
+      file = await tagAudioBlob(file, notes, new Date().toISOString());
+    } catch {
+      file = blob;
+    }
+  }
+  const filename = `${safeFile(notes.title)}.${ext}`;
+  useDeck.getState().markRecorded(trackId);
+  downloadBlob(file, filename);
+  const still = engine.getSnapshot().tape;
+  useDeck.getState().setNotice(
+    still
+      ? `Saved ${filename}. The next song records too — just confirm the name.`
+      : `Saved ${filename}.`,
+  );
+}
+
 async function recordCurrent() {
-  if (engine.getSnapshot().recording) {
+  const snap = engine.getSnapshot();
+  if (snap.recording || snap.tape) {
     engine.stopRecording();
     return;
   }
@@ -76,12 +135,16 @@ export function Deck() {
     };
     engine.onSpin = (id) => useDeck.getState().markSpin(id);
     engine.onHeard = (id, seconds, natural) => useDeck.getState().markHeard(id, seconds, natural);
-    engine.onRecording = (blob, mime) => {
-      const playing = useDeck.getState().current;
-      const ext = mime.includes("mp4") ? "m4a" : "webm";
-      if (playing) useDeck.getState().markRecorded(playing.id);
-      downloadBlob(blob, `${safeFile(playing?.title || "blackwire")}.${ext}`);
-      useDeck.getState().setNotice(`Saved a recording of ${playing?.title ?? "that song"}.`);
+    engine.onRecordBegin = (takeId, trackId) => {
+      const track = findTrack(trackId);
+      const notes = getClipNotes({ data: { id: trackId } }).catch(() => null);
+      takes.set(takeId, { track, notes });
+    };
+    engine.onRecording = (blob, mime, takeId, trackId) => {
+      void saveTake(blob, mime, takeId, trackId);
+    };
+    engine.onRecordDiscard = (takeId) => {
+      takes.delete(takeId);
     };
     const unsub = useDeck.persist.onFinishHydration((state) => {
       engine.setVolume(state.volume);
@@ -98,13 +161,15 @@ export function Deck() {
       engine.onEnded = null;
       engine.onSpin = null;
       engine.onHeard = null;
+      engine.onRecordBegin = null;
       engine.onRecording = null;
+      engine.onRecordDiscard = null;
     };
   }, []);
 
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => useDeck.getState().setNotice(null), 4200);
+    const timer = window.setTimeout(() => useDeck.getState().setNotice(null), 7000);
     return () => window.clearTimeout(timer);
   }, [notice]);
 
@@ -430,11 +495,19 @@ function NowPlaying({
           onClick={() => void recordCurrent()}
           className={
             "inline-flex items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium " +
-            (recording ? "bg-blue text-on-blue" : "border border-line bg-surface")
+            (recording || snap.tape ? "bg-blue text-on-blue" : "border border-line bg-surface")
           }
         >
-          {recording ? <Square className="size-4" /> : <span className="size-2.5 rounded-full bg-blue-2" />}
-          {recording ? `Recording ${formatTime(snap.recordSeconds)}` : "Record song"}
+          {recording || snap.tape ? (
+            <Square className="size-4" />
+          ) : (
+            <span className="size-2.5 rounded-full bg-blue-2" />
+          )}
+          {recording
+            ? `Recording ${formatTime(snap.recordSeconds)}`
+            : snap.tape
+              ? "Will record next"
+              : "Record song"}
         </button>
         <button
           type="button"
@@ -465,10 +538,13 @@ function NowPlaying({
           </a>
         )}
       </div>
+      {(recording || snap.tape) && current && (
+        <p className="mt-3 font-mono text-xs text-faint">File name: {safeFile(current.title)}.webm</p>
+      )}
       <p className="mt-3 text-xs leading-relaxed text-faint">
-        Record plays the song from the top and saves an audio file when it ends, or when you stop. Save video
-        grabs the original file without a full listen. Audio stays on Suno — this deck does not mirror the
-        catalog.
+        Record plays the whole song and saves a file named for that song — just confirm the download. It then
+        records the next song in the list, or the next queued song, until you stop. The webm keeps the lyrics,
+        style, model, and the other public Suno details. Save video grabs the original file without a full listen.
       </p>
       {lyricsOpen && (
         <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl bg-surface p-4 font-sans text-sm leading-relaxed text-muted">
@@ -886,10 +962,11 @@ function HistoryPanel() {
 function MobileBar({ playing, recording }: { playing: boolean; recording: boolean }) {
   const current = useDeck((state) => state.current);
   const snap = useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot);
+  const armed = recording || snap.tape;
   return (
     <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-bg-elev px-3 py-2 md:hidden">
       <p className="truncate text-center text-xs text-muted">
-        {recording ? `Recording ${formatTime(snap.recordSeconds)} · ` : ""}
+        {recording ? `Recording ${formatTime(snap.recordSeconds)} · ` : snap.tape ? "Next song records · " : ""}
         {current?.title ?? "Blackwire"}
       </p>
       <div className="mt-1 flex items-center justify-center gap-2">
@@ -912,10 +989,10 @@ function MobileBar({ playing, recording }: { playing: boolean; recording: boolea
           onClick={() => void recordCurrent()}
           className={
             "inline-flex h-11 items-center rounded-full px-4 text-sm " +
-            (recording ? "bg-blue text-on-blue" : "border border-line")
+            (armed ? "bg-blue text-on-blue" : "border border-line")
           }
         >
-          {recording ? "Stop" : "Record"}
+          {armed ? "Stop" : "Record"}
         </button>
       </div>
     </div>

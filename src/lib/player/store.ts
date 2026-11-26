@@ -465,6 +465,16 @@ export const useDeck = create<DeckState>()(
         if (!queue.length && state.repeat === "all" && past.length) {
           queue = past.map((track) => ({ qid: qid(), track }));
         }
+        if (!queue.length && engine.getSnapshot().tape) {
+          const source = state.playlistTracks ?? state.tracks;
+          const index = source.findIndex((track) => track.id === endedId);
+          const following = index >= 0 ? source[index + 1] : undefined;
+          if (following) {
+            set({ past, current: following });
+            get().remember(following);
+            return { type: "track", track: following };
+          }
+        }
         if (!queue.length && state.radio) {
           set({ past, queue: [] });
           return { type: "radio" };

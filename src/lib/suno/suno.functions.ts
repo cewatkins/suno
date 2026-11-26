@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { normalizeClip, parseHandle, parseUuid } from "@/lib/suno/normalize";
-import type { SlimTrack, StationPage, StationPlaylist } from "@/lib/suno/types";
+import { notesFromRaw } from "@/lib/suno/notes";
+import type { ClipNotes, SlimTrack, StationPage, StationPlaylist } from "@/lib/suno/types";
 
 const API = "https://studio-api.prod.suno.com";
 
@@ -117,6 +118,15 @@ export const getClip = createServerFn({ method: "GET" })
     const track = normalizeClip(body as never);
     if (!track) throw new Error("That song isn't public.");
     return track;
+  });
+
+export const getClipNotes = createServerFn({ method: "GET" })
+  .validator((input: { id?: string }) => ({ id: parseUuid(input?.id, "song") }))
+  .handler(async ({ data }): Promise<ClipNotes> => {
+    const body = asRecord(await sunoGet(`/api/clip/${data.id}`));
+    const notes = notesFromRaw(body);
+    if (!notes) throw new Error("That song isn't public.");
+    return notes;
   });
 
 export const getRandomBatch = createServerFn({ method: "GET" })

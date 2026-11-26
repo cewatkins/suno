@@ -7,6 +7,7 @@ export type TransportSnap = {
   duration: number;
   error: string | null;
   recording: boolean;
+  tape: boolean;
   recordSeconds: number;
   canRecord: boolean;
 };
@@ -20,6 +21,7 @@ const IDLE: TransportSnap = {
   duration: 0,
   error: null,
   recording: false,
+  tape: false,
   recordSeconds: 0,
   canRecord: false,
 };
@@ -31,6 +33,16 @@ function mimeChoice(): string {
   const options = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
   return options.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
 }
+
+type TakeReason = "end" | "stop" | "skip" | "drop";
+
+type Take = {
+  id: string;
+  trackId: string;
+  started: number;
+  reason: TakeReason;
+  release: () => void;
+};
 
 class PlayerEngine {
   audio: HTMLAudioElement | null = null;
@@ -45,7 +57,12 @@ class PlayerEngine {
   private levels = LEVELS();
   private volume = 0.9;
   private muted = false;
+  private tape = false;
   private pendingRecord = false;
+  private take: Take | null = null;
+  private takeSeq = 0;
+  private arming = false;
+  private gate: Promise<void> = Promise.resolve();
   private maxHeard = 0;
   private reported = false;
   private natural = false;
@@ -53,12 +70,13 @@ class PlayerEngine {
   private recordStarted = 0;
   private lastRecordEmit = 0;
   private raf = 0;
-  private recordMime = "audio/webm";
 
   onEnded: ((id: string) => void) | null = null;
   onSpin: ((id: string) => void) | null = null;
   onHeard: ((id: string, seconds: number, natural: boolean) => void) | null = null;
-  onRecording: ((blob: Blob, mime: string) => void) | null = null;
+  onRecordBegin: ((takeId: string, trackId: string) => void) | null = null;
+  onRecording: ((blob: Blob, mime: string, takeId: string, trackId: string) => void) | null = null;
+  onRecordDiscard: ((takeId: string) => void) | null = null;
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -85,6 +103,7 @@ class PlayerEngine {
           : this.snap.duration,
       error: this.snap.error,
       recording: this.recorder?.state === "recording",
+      tape: this.tape,
       recordSeconds:
         this.recorder?.state === "recording"
           ? (performance.now() - this.recordStarted) / 1000
@@ -125,10 +144,7 @@ class PlayerEngine {
         this.onSpin?.(id);
       }
       this.emit();
-      if (this.pendingRecord) {
-        this.pendingRecord = false;
-        this.beginRecorder();
-      }
+      this.armRecorder();
     });
     audio.addEventListener("pause", () => {
       if (!audio.ended && this.snap.status !== "idle" && this.snap.status !== "error") {
@@ -144,7 +160,8 @@ class PlayerEngine {
     });
     audio.addEventListener("error", () => {
       this.pendingRecord = false;
-      this.finishRecorder();
+      this.tape = false;
+      this.finishRecorder("drop");
       this.setStatus(
         "error",
         "This track didn't load. The video file may be missing or blocked.",
@@ -153,7 +170,7 @@ class PlayerEngine {
     audio.addEventListener("ended", () => {
       const id = this.snap.currentId;
       this.natural = true;
-      if (this.recorder?.state === "recording") this.finishRecorder();
+      this.finishRecorder("end");
       this.reportHeard();
       this.snap = { ...this.snap, status: "paused", currentTime: audio.duration || this.snap.currentTime };
       this.emit();
@@ -231,8 +248,10 @@ class PlayerEngine {
     const audio = this.ensureAudio();
     this.natural = false;
     this.reportHeard();
-    this.finishRecorder();
-    this.pendingRecord = Boolean(opts?.record);
+    const recordThis = this.tape || Boolean(opts?.record);
+    if (opts?.record) this.tape = true;
+    this.finishRecorder(this.recorder ? "skip" : "drop");
+    this.pendingRecord = recordThis;
     this.reported = false;
     this.maxHeard = 0;
     this.natural = false;
@@ -245,6 +264,7 @@ class PlayerEngine {
       currentTime: 0,
       duration: track.duration || 0,
       recording: false,
+      tape: this.tape,
       recordSeconds: 0,
     };
     this.emit();
@@ -259,7 +279,9 @@ class PlayerEngine {
     } catch {
       this.pendingRecord = false;
       this.setStatus("paused", "Playback was blocked. Hit play once more.");
+      return;
     }
+    this.armRecorder();
   }
 
   async replay() {
@@ -268,12 +290,18 @@ class PlayerEngine {
     this.natural = false;
     this.reported = false;
     this.maxHeard = 0;
+    const recordThis = this.tape;
+    this.finishRecorder(this.recorder ? "skip" : "drop");
+    this.pendingRecord = recordThis;
     audio.currentTime = 0;
     try {
       await audio.play();
     } catch {
+      this.pendingRecord = false;
       this.setStatus("paused", "Playback was blocked. Hit play once more.");
+      return;
     }
+    this.armRecorder();
   }
 
   async toggle() {
@@ -310,28 +338,48 @@ class PlayerEngine {
     if (!this.snap.currentId || !this.audio?.src) return;
     this.ensureGraph();
     await this.resume();
-    this.finishRecorder();
+    this.tape = true;
+    this.finishRecorder(this.recorder ? "drop" : "drop");
     this.pendingRecord = true;
-    this.audio.currentTime = 0;
+    const audio = this.audio;
+    audio.currentTime = 0;
     try {
-      await this.audio.play();
+      await audio.play();
     } catch {
       this.pendingRecord = false;
+      this.tape = false;
       this.setStatus("paused", "Playback was blocked. Hit play once more.");
+      return;
     }
+    this.armRecorder();
   }
 
   stopRecording() {
+    this.tape = false;
     this.pendingRecord = false;
-    this.finishRecorder();
+    this.finishRecorder("stop");
     this.emit();
   }
 
-  private beginRecorder() {
-    if (!this.tap || typeof MediaRecorder === "undefined") {
+  private armRecorder() {
+    if (!this.pendingRecord || this.recorder || this.arming) return;
+    this.arming = true;
+    void this.gate.then(() => {
+      this.arming = false;
+      if (!this.pendingRecord || this.recorder) return;
       this.pendingRecord = false;
+      this.beginRecorder();
+    });
+  }
+
+  private beginRecorder() {
+    const trackId = this.snap.currentId;
+    if (!trackId || !this.tap || typeof MediaRecorder === "undefined") {
+      this.pendingRecord = false;
+      this.tape = false;
       this.snap = {
         ...this.snap,
+        tape: false,
         error: "This browser can't record audio. You can still save the video file.",
       };
       this.emit();
@@ -341,39 +389,74 @@ class PlayerEngine {
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(this.tap.stream, mime ? { mimeType: mime } : undefined);
     const type = recorder.mimeType || mime || "audio/webm";
-    this.recordMime = type;
+    const take: Take = {
+      id: `${trackId}:${(this.takeSeq += 1)}`,
+      trackId,
+      started: performance.now(),
+      reason: "stop",
+      release: () => {},
+    };
+    this.take = take;
     recorder.ondataavailable = (event) => {
       if (event.data.size) chunks.push(event.data);
     };
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type });
+      const seconds = (performance.now() - take.started) / 1000;
       if (this.recorder === recorder) {
         this.recorder = null;
         this.snap = { ...this.snap, recording: false, recordSeconds: 0 };
         this.emit();
       }
-      if (blob.size > 800) this.onRecording?.(blob, type);
+      const keep =
+        take.reason === "end" ||
+        take.reason === "stop" ||
+        (take.reason === "skip" && seconds >= 8);
+      if (keep && blob.size > 800) this.onRecording?.(blob, type, take.id, take.trackId);
+      else this.onRecordDiscard?.(take.id);
+      take.release();
     };
     recorder.start();
     this.recorder = recorder;
-    this.recordStarted = performance.now();
-    this.lastRecordEmit = this.recordStarted;
+    this.recordStarted = take.started;
+    this.lastRecordEmit = take.started;
+    this.onRecordBegin?.(take.id, trackId);
     this.emit();
   }
 
-  private finishRecorder() {
+  private finishRecorder(reason: TakeReason) {
     const recorder = this.recorder;
     this.pendingRecord = false;
     if (!recorder || recorder.state === "inactive") {
       this.recorder = null;
       return;
     }
+    if (this.take) this.take.reason = reason;
+    const take = this.take;
+    let release = () => {};
+    this.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const timer = window.setTimeout(release, 2000);
+    if (take) {
+      take.release = () => {
+        window.clearTimeout(timer);
+        release();
+      };
+    }
+    this.recorder = null;
     try {
       recorder.requestData();
     } catch {
       /* already flushing */
     }
-    recorder.stop();
+    try {
+      recorder.stop();
+    } catch {
+      release();
+    }
+    this.snap = { ...this.snap, recording: false, recordSeconds: 0 };
+    this.emit();
   }
 }
 
